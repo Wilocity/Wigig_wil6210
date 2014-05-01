@@ -1,0 +1,18 @@
+#!/bin/bash
+
+LOG_ADDR=@LOG_ADDR@
+
+DATE=$(date +%Y-%m-%d-%H-%M-%S)
+ERR=/tmp/wil6210-error-$DATE
+echo $DATE > $ERR
+echo "===Device info===" >> $ERR
+env >> $ERR
+### where is wil6210 debugfs?
+D=$(find /sys/kernel/debug/ieee80211/ -name wil6210)
+
+cd @DRVDIR@
+
+echo "===FW trace===" >> $ERR
+tools/trace --memdump=$D/blob_fw_peri --logsize=1024 --strings=fw_strings.bin --once >> $ERR
+echo "===dmesg===" >> $ERR
+dmesg | tail -n 200 >> $ERR

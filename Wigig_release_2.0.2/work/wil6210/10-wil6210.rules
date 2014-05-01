@@ -1,0 +1,1 @@
+SUBSYSTEM=="net", ENV{SOURCE}=="wil6210", ENV{EVENT}=="FW_ERROR", RUN+="/home/wigig/work/wil6210/fw_error.sh"

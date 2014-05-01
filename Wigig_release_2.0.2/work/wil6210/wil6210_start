@@ -1,0 +1,253 @@
+#!/bin/bash
+
+### Start Wilocity card
+# parameters:
+# -c config : use alternative config file (default is wil6210.config)
+
+
+BRIDGE_IP_ADDR=""
+
+check_ifc() {
+	for f in /sys/class/net/*; do {
+		drv=`readlink $f/device/driver`;
+	        drv=${drv##.*/}
+	        if [[ $drv == $WIL_DRV ]]; then {
+	                ifc=${f#/sys/class/net/}
+	                echo $ifc
+	                export WLAN=$ifc
+	                return
+	        } ; fi
+	} ; done
+	echo "Unable to detect WLAN interface"
+	exit 1
+}
+
+do_insmod() {
+	rmmod wil6210
+	echo "insmod wil6210.ko"
+
+	insmod /root/work/wil6210/wil6210.ko $WIL_MODOPT
+	sleep 1
+
+	check_ifc
+}
+
+stop_nm() {
+	  service network-manager stop
+}
+
+run_station() {
+	do_insmod
+}
+
+
+route_set() {
+	  route add -net $STATIC_NET.0 netmask 255.255.255.0 br0
+	  route add default gw $STATIC_IP br0        
+}
+
+bridge_set() {
+          ##### TODO find out how to extract the ethernet ifc name 
+	  ifconfig $WIL_ETH_DEV_NAME 0.0.0.0
+
+	  brctl addbr br0
+	  brctl setfd br0 0	
+}
+
+bridge_stop_if_any() {
+	bridge_exist=$(ifconfig | grep br0)
+	
+	if test -z "$bridge_exist" 
+		then
+			echo "Stoping bridge configuration"
+			brctl delif br0 $WLAN $WIL_ETH_DEV_NAME
+        		ifconfig br0 down
+        		brctl delbr br0
+	fi
+}
+
+verify_assign_addr() { 	
+	# Verify we got valid IP address
+	BRIDGE_IP_ADDR=$(ifconfig  | grep inet -B 4| grep br0 -A1 | grep inet |  cut -d " "  -f10)
+	VALID_IP=`ping $BRIDGE_IP_ADDR -c1`
+	if test -z "$VALID_IP" 
+		then
+			BRIDGE_IP_ADDR=""
+			echo "DHCP Error"
+	fi
+}
+
+run_wpa_supp_ap() {
+	ifconfig $WLAN up $WIL_AP_IP
+	iw reg set "US"
+	$WPA_SUPPLICANT -D nl80211 -i $WLAN -c $WPA_CONF
+}
+
+
+run_hostapd_nat_ap() {
+	echo "Starting AP with NAT, DHCP: "
+	#Check if dhcp is installed
+ 	if [ -e $WIL_DHCP_INSTALL ] ; then
+		echo "--- dhcpd: $WIL_DHCP_INSTALL "
+   	else
+		echo "dhcpd: DHCPD is not installed under $WIL_DHCP_INSTALL. "
+	fi		  
+		 
+	echo "Configuring iptables for wigig ifc = $WLAN and LAN ifc = $WIL_ETH_DEV_NAME"
+	sysctl -w net.ipv4.ip_forward=1 
+	iptables --flush
+	iptables --table nat --flush
+	iptables --delete-chain
+	iptables --table nat --delete-chain
+	iptables --table nat --append POSTROUTING --out-interface $WIL_ETH_DEV_NAME -j MASQUERADE
+	iptables --append FORWARD --in-interface $WLAN -j ACCEPT
+	iptables --list
+
+	dhclient -x
+	dhclient $WIL_ETH_DEV_NAME -v
+
+	#ifconfig $WLAN down
+	#sleep 1
+	ifconfig $WLAN up $STATIC_IP netmask $NETMASK
+	sleep 1			  
+	systemctl restart smb.service
+	systemctl status smb.service	
+	systemctl restart dhcpd.service
+	systemctl status dhcpd.service
+
+	$HOSTAPD $HOSTAP_CONF -ddd -B	
+}
+
+
+
+run_hostapd_bridge_ap() {
+
+	ifconfig $WLAN up $WIL_AP_IP
+	iw reg set "US"
+	# use external DHCP services
+	bridge_set	
+	ifconfig br0 up 0.0.0.0
+	brctl addif br0 $WIL_ETH_DEV_NAME
+	sleep 1
+	dhclient -x
+        dhclient br0 -v	
+	verify_assign_addr 
+	echo "--- bridge addr (dynamic): $BRIDGE_IP_ADDR "		
+	# if address not valid: can be in case where external DHCP failed
+	if [ -z $BRIDGE_IP_ADDR ] ; then
+		# Assign a static IP to the bridge
+		dhclient -x
+		ifconfig br0 $STATIC_IP netmask $NETMASK up
+		$HOSTAPD $HOSTAP_CONF -ddd -B
+		route_set
+		echo "--- bridge addr (static): $BR_STATIC_IP "
+		# In case we want to enable internal AP dhcp services
+		/bin/systemctl stop dhcpd.service				
+		/bin/systemctl start dhcpd.service
+		/bin/systemctl status dhcpd.service			
+	else
+		$HOSTAPD $HOSTAP_CONF -ddd -B
+		sleep 3
+		brctl addif br0 $WLAN 
+		ADDR1=$(echo $BRIDGE_IP_ADDR | cut -d "." -f1)
+		ADDR2=$(echo $BRIDGE_IP_ADDR | cut -d "." -f2)
+		ADDR3=$(echo $BRIDGE_IP_ADDR | cut -d "." -f3)
+
+	  	#route add -net $ADDR1.$ADDR2.$ADDR3.0 netmask 255.255.255.0 br0
+	  	#route add default gw $BRIDGE_IP_ADDR br0   		
+
+	fi
+}
+
+
+ap_app_start() {
+
+	check_ifc
+	bridge_stop_if_any
+	iptables --flush
+	iptables --table nat --flush
+	iptables --delete-chain
+	iptables --table nat --delete-chain
+	killall hostapd
+
+	case $config in
+		*ap.config)
+		  run_wpa_supp_ap
+		;;
+		*ap.hostapconfig)
+		case $WIL_NET_MODE in
+			nat)
+			run_hostapd_nat_ap
+			;;
+			bridge)
+			run_hostapd_bridge_ap
+			;;
+			*) { echo "Wrong AP Network config <$config>"; exit 1; } ;;
+			esac
+		;;
+		*) { echo "Wrong AP config file <$config>"; exit 1; } ;;
+	esac
+
+	
+
+}
+
+run_ap() {
+	[[ -r $config ]] || { echo "Unable to read AP userspace application config <$config>"; exit 1; }
+	
+	stop_nm
+	do_insmod
+
+	# Turn off driver debug mode
+	sleep 3
+	echo 'module wil6210 -p' > /sys/kernel/debug/dynamic_debug/control		
+	
+	#echo 'module wil6210 format [WMI] +p' > /sys/kernel/debug/dynamic_debug/control		
+	#echo 'module wil6210 format [MISC] +p' > /sys/kernel/debug/dynamic_debug/control		
+	ap_app_start
+}
+
+run_sniffer() {
+	stop_nm
+	case $WIL_SNIFFER_PHYINFO in
+		Y|1|y) WIL_MODOPT="rtap_include_phy_info=Y" ;;
+		*) WIL_MODOPT="rtap_include_phy_info=N" ;;
+	esac
+	do_insmod
+	  iw $WLAN set type monitor
+	case $WIL_SNIFFER_PHY in
+		CP)   iw $WLAN set monitor control ;;
+		DP)   iw $WLAN set monitor none ;;
+		*) "echo ???" ;;
+	esac
+	[[ -n $WIL_FREQ ]] &&   iw $WLAN set freq $WIL_FREQ
+	  ifconfig $WLAN up
+}
+
+### defaults ###
+WIL_DRV="wil6210"
+WIL_MODOPT=""
+config="wil6210.config"
+AP_APP=
+### parse options ###
+while getopts "c:" flag; do
+	case $flag in
+            c) config=$OPTARG ;;
+	esac
+done
+
+echo "Use config <$config>"
+
+### source config ###
+[[ -r $config ]] || { echo "Unable to read config <$config>"; exit 1; }
+. $config
+
+
+echo "mode <$WIL_MODE>"
+### run ###
+case $WIL_MODE in
+	station) run_station ;;
+	ap) run_ap ;;
+	sniffer) run_sniffer ;;
+	*) { echo "Unknown mode <$WIL_MODE>"; exit 1; } ;;
+esac

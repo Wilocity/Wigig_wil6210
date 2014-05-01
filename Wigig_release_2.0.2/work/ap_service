@@ -1,0 +1,36 @@
+#!/bin/bash
+# chkconfig: 2345 90 10
+# description: Description comes here....
+
+# Source function library.
+. /etc/init.d/functions
+
+start() {
+     echo "AP service start ..." > /tmp/ap.erv.txt
+     #/root/work/run_ap.sh 
+     /root/work/fst_ap_run.sh 
+}
+
+stop() {
+     echo "AP service stop ..." >> /tmp/ap.erv.txt
+     /root/work/stop_ap.sh 
+}
+
+case "$1" in 
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    retart)
+        stop
+        start
+        ;;
+    *)
+         echo "Usage: $0 {start|stop|restart}"
+   esac
+
+   exit 0
+ 
+

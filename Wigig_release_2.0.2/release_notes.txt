@@ -1,0 +1,46 @@
+# Wigig Release 17/10/2013
+
+Components
+- FW based on FW TRUNK 3611
+- Wil6210 driver for Kernel 3.10+ (3.10 + FST patches)
+- Latest Wilocity Linux Tools
+- Regulatory files for 60Ghtz
+- Hostapd  (from GIT) for 60AD and 11n AP+ FST patches
+- wpa_supplicant 
+- dhcp server 
+- Samba server
+
+
+New features:
+- FST, Kernel + hostapd changes for FST + supplicant (STA)
+- NAT
+- Bridge 
+- Suport Samba service for remote access to AP FS
+- Suppor 11n AP (WiFi) default is 2.4/5 Ghtz
+
+
+Limitations:
+1- Traffic load balance is not optimized yet
+2- Network Manager not supported
+
+
+How to:
+1- Open shell with su permissions
+2- extract release file to /work this will create a /root/work folder
+3- the upgrade flow runs in three steps:
+	3.1 Kernel upgrade: /root/work/upgrade_wigig_2.0.2_fst.sh kernel
+	    reboot when requested (after reboot verfy new kernel is updated- uname -r)
+	3.2 Driver upgrade: /root/work/upgrade_wigig_2.0.2_fst.sh driver
+	3.3 FW upgrade: /root/work/upgrade_wigig_2.0.2_fst.sh fw -ltcc
+	3.4 DHCP install: /root/work/upgrade_wigig_2.0.2_fst.sh dhcpd
+	3.5 SMBD install: /root/work/upgrade_wigig_2.0.2_fst.sh smbd
+	3.6 AP auto start: /root/work/upgrade_wigig_2.0.2_fst.sh ap_autostart
+
+4- To run in AP mode: call /root/work/fst_run_ap.sh 
+        
+5- To run in STA mode: call /root/work/run_sta.sh
+
+
+
+
+

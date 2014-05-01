@@ -1,0 +1,292 @@
+Driver for wil6210 wireless network card.
+=========================================
+
+Copyright (c) 2012 Qualcomm Atheros, Inc.
+<wil6210@qca.qualcomm.com>
+
+Introduction
+============
+
+The wil6210 is 60GHz wireless card by Wilocity.
+It provides WiFi and wireless PCIE connectivity, as described in
+the WiGig WBE spec.
+
+This is PCIE device. It is combined with Atheros 2.4/5.2 GHz WiFi card.
+On the PCI, it is represented as the following hierarchy:
+
+1ae9:0101-+-1ae9:0201---168c:0034
+          +-1ae9:0201---1ae9:0301
+          +-1ae9:0201
+          \-1ae9:0201
+
+Chip consists of 1ae9:0101 is root bridge, with 4 ports 1ae9:0201.
+One port routed to separate Atheros card 168c:0034, it is handled by the
+ath9k driver.
+Another port connected to the wil6210 device 1ae9:0301, that is on chip.
+2 empty ports may be populated when connecting in WBE mode.
+
+wil6210 device, 1ae9:0301, has one 2Mb BAR.
+
+Network features
+================
+
+For the WiFi connection, it implements 802.11ad spec.
+Supported are channels 1..3 with corresponded frequencies
+58320, 60480, 62640 MHz.
+
+wil6210 use cfg80211 framework, but not mac80211.
+
+Modes supported are:
+
+- monitor
+- managed (station)
+- AP
+
+Driver designed in a way that hardware start running only when network
+interface brought up, with either 'ifconfig up' or starting AP. All settings
+made before are cached in the driver but not passed to the hardware.
+
+iw commands supported
+---------------------
+
+iw link: query link status. Report current MCS.
+
+Module parameters
+=================
+
+- rtap_include_phy_info
+     Include PHY info in the radiotap header, default - no (bool)
+- use_msi
+     Use MSI interrupt: 0 - don't, 1 - (default) - single, or 3 (int)
+- debug_fw
+     load driver if FW not ready. For FW debug (bool)
+
+wil6210 support set of interrupt handling modes:
+
+- INTx - legacy pin interrupt. Do not use if possible.
+- 1MSI - one MSI interrupt. This is the default mode.
+- 3MSI - 3 MSI interrupts for {Tx, Rx, Misc}.
+
+For interrupt handling mode, probed is highest one specified with @use_msi,
+with fallback:
+
+3MSI -> 1MSI -> INTx
+
+On the x86 platform, multiple MSI interrupts are not supported with recent
+kernel (3.7).
+
+When @debug_fw set to true, driver probe will not fail if firmware do not
+report "ready" event. This is to aid firmware boot issues debugging.
+
+Sniffer
+=======
+
+To configure wil6210 in sniffer mode (assume $WLAN set to network
+interface name):
+
+# iw $WLAN set type monitor
+
+Due to hardware/firmware deficiency, sniffer can capture either only
+control PHY (CP) or only data PHY (DP). To configure for desired PHY type
+do, after configuring for monitor mode:
+
+For CP:
+# iw $WLAN set monitor control
+For DP:
+# iw $WLAN set monitor none
+
+Finally, bring interface up:
+
+# ifconfig $WLAN up
+
+Examples for AP mode
+====================
+
+AP mode may be started using wpa_supplicant of hostapd. Use latest development
+snapshot of wpa_supplicant.
+
+For the wpa_supplicant, start AP in non-secure mode with config:
+
+---cut---
+ap_scan=2
+
+network={
+        frequency=60480
+        ssid="the_ssid_string"
+        mode=2
+        key_mgmt=NONE
+}
+---cut---
+
+To start secure AP, use config:
+
+---cut---
+ap_scan=2
+
+network={
+        frequency=60480
+        ssid="secure_ap"
+        psk="passphrase"
+        mode=2
+        key_mgmt=WPA-PSK
+        proto=RSN
+        pairwise=GCMP
+        group=GCMP
+}
+---cut---
+
+WMI commands
+============
+
+Control communication with the card is done through so called WMI commands
+and events. Target access to the mailbox within memory in BAR0 used.
+There are 2 similar mailbox structures: one for host->card commands, and one
+for card->host events.
+
+Tx/Rx
+=====
+
+DMA using 'vring' structures. Vring in consistent memory; hold descriptors
+that points to the data buffers. Card to write status back to the descriptor.
+
+There is one Rx vring. Tx vrings - multiple, per DA*TID.
+
+Debug facilities
+================
+
+Dynamic debug
+-------------
+
+Almost all messages printed to the dmesg, are "dynamic debug" ones.
+See Documentation/dynamic-debug-howto.txt for details.
+Module "wil6210" uses format prefixes to identify message groups:
+
+- "DBG[ IRQ]" for interrupt related messages. Prints every IRQ.
+- "DBG[TXRX]" for Tx/Rx path. Prints every Tx/Rx package.
+- "DBG[ WMI]" for WMI commands subsystem
+
+Groups IRQ and TXRX are heavy traffic; enable only when required.
+Group WMI is relatively low traffic, it prints only WMI messages.
+It is good idea to enable it when debugging.
+
+Debugfs
+-------
+
+All debugfs files placed under standard location for the cfg80211 devices,
+$DEBUGFS/ieee80211/$PHY/ where $PHY is phy name like 'phy1'.
+
+All wil6210 specific files placed under directory 'wil6210'.
+Facilities provided:
+
+- register access. All ICR (Interrupt Control Registers) groups represented as
+  directories, with entries per register, allowing read/write.
+  ITR (Interrupt Threshold Registers) represented as well.
+
+- raw memory access. All memory sections represented as 'blob' files, providing
+  read only access to the memory on card. Sections include:
+
++-------------------------------+---------------+
+| blob_xxx  | BAR0    | Size    | Comment       |
+| file name | offset  |         |               |
++-----------+---------+---------+---------------+
+| rgf       |     0x0 |  0xa000 | Register file |
+| fw_code   | 0x40000 | 0x40000 | FW code       |
+| fw_data   | 0x80000 |  0x8000 | FW data       |
+| fw_peri   | 0x88000 | 0x18000 | FW peripheral |
+| uc_code   | 0xa0000 | 0x10000 | Ucode code    |
+| uc_data   | 0xb0000 |  0x4000 | Ucode data    |
++-----------+---------+---------+---------------+
+
+Raw memory access used by firmware/ucode trace extractor. See below. Also,
+raw memory dump may be obtained for later analysis.
+
+- DWORD memory read, as FW see it. Files 'mem_addr' and 'mem_val' provide
+  access to the memory, using FW addresses (FW memory mapping is somewhat
+  different from what host see in BAR0). Write address to the 'mem_addr', then
+  read 'mem_val'. It will reads like "[0x%08x] = 0x%08x\n", addr, value
+
+- mailbox for WMI commands events. File 'mbox' reads like:
+
+ring tx = {
+  base = 0x008802e8
+  size = 0x0028 bytes -> 5 entries
+  tail = 0x00880300
+  head = 0x00880300
+  entry size = 1288
+  [ 0] E    0x00842490 -> 1fc9 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+  [ 1] E    0x00841f88 -> 1fca 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+  [ 2] E    0x00841a80 -> 1fcb 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+  [ 3] E th 0x00841578 -> 1fc7 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+  [ 4] E    0x00841070 -> 1fc8 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+}
+ring rx = {
+  base = 0x00880318
+  size = 0x0040 bytes -> 8 entries
+  tail = 0x00880320
+  head = 0x00880320
+  entry size = 256
+  [ 0] E    0x00842f98 -> 24f8 000c 0000 00
+      : 00 00 0a 10 00 00 00 00 00 00 00 00
+  [ 1] E th 0x00000000 -> 2020 0f80 0000 c0
+  [ 2] E    0x00000000 -> 2020 0f80 0000 c0
+  [ 3] E    0x00000000 -> 2020 0f80 0000 c0
+  [ 4] E    0x00000000 -> 2020 0f80 0000 c0
+  [ 5] E    0x00000000 -> 2020 0f80 0000 c0
+  [ 6] E    0x00000000 -> 2020 0f80 0000 c0
+  [ 7] E    0x00000000 -> 2020 0f80 0000 c0
+}
+
+There are 2 separate rings, one for Tx, or host->card commands; and 2-nd
+for Rx, or card->host events.
+
+Printed for each ring (all addresses in FW memory mapping):
+  - base address of ring in card's memory
+  - ring size in bytes and entries
+  - tail and head pointers
+  - max. entry size. It is fake for Rx - FW may allocate entry of arbitrary size
+  - mailbox entries, format for entry:
+
+
+       /-- 'E' for empty entry, 'F' for full
+       | /+-- 't' for tail, 'h' for head
+       | ||
+ index | || address       /-mbox header---\ [seq,len,type,flags]
+    v  v vv   v           v               v
+  [ 3] E th 0x00841578 -> 1fc7 001e 0000 00
+      : 00 00 07 00 00 00 00 00 ff ff 03 00 00 00 00 00
+      : 00 00 00 20 04 07 01 88 ff 02 00 00 01 00
+        \--buffer content (if valid)------------------/
+
+- Tx/Rx DMA Vrings. File 'vrings' reads as:
+
+VRING rx = {
+  pa     = 0x00000000bb075000
+  va     = 0xffff8800bb075000
+  size   = 128
+  swtail = 127
+  swhead = 0
+  hwtail = [0x008813c8] -> 0x0000007f
+HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHS
+}
+
+There is one block for Rx DMA vring and one for every Tx DMA vring.
+
+Information printed:
+  - addresses, physical (pa) and virtual (va)
+  - size, entries
+  - software head and tail pointers
+  - hardware tail, format: [fw addr] -> value
+  - One letter per vring entry, 'H' for hardware owned and 'S'
+    for software owned ones.
+

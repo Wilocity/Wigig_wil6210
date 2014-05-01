@@ -1,0 +1,42 @@
+
+    /------ Tx ring index
+    |    /- Descriptor index
+    v    v
+Tx[ 0][ 30] = {
+
+           /-------- 8: SN_PRESERVED
+          |  /------ 7c: MCS_INDEX; 80: MCS_EN
+          | |  /---- 3: TXSS_OVERRIDE; 4: TIMESTAMP_INSERTION;
+          | | |      8: DURATION_PRESERVE
+          | | | /--- 4: INTERRUP_EN; 8: STATUS_EN
+          | | || /-- 3ff: LIFETIME_EXPIRY_VALUE
+          | | |||      /------- 7F: MAX_RETRY, 80: MAX_RETRY_EN
+          | | |||     | /------ 1: DST_INDEX_EN; 6: ACK_POLICY; 8: LIFETIME_EN
+          | | |||     || /----- DST_INDEX
+          | | |||     ||| /---- 8: ACK_POLICY_EN
+          | | |||     ||||  /-- 1: PKT_MODE_EN
+          | | |||     |||| | /- PKT_MODE
+          | | |||     |||| ||      /----- 1: SNAP_HDR_INSERT; 2: VLAN_REMOVAL
+          | | |||     |||| ||     | /---- 0xc: L2 trans type (0: bypass, 
+          | | |||     |||| ||     ||      4: 802.3, 8: 802.11)
+          | | |||     |||| ||     ||   /-num of desc
+          v/\ v/-\   /\vvv vv     vv  /\ /--cmd---\ 
+  MAC = 0x00000000 0x00100000 0x00140001 0x00000000
+  DMA = 0x00000700 0x00000000 0x00000000 0x00000100
+            ^^^^\/ \--PA-l--/   \/\/\PA/   \--/\/\/-- error
+            |||| \- L4 len      | |         |   \---- status
+            ||||                | |          \------- length
+            ||||                |  \---IP length
+            ||||                \------7f: mac_length; 80:ip_version
+            ||| \-- 1: EOP; 2: ???; 4: DMA_IT;
+            |||     8: SEGMENT_BUF_DETAILS (with next bit)
+            || \--- 1: SEGMENT_BUF_DETAILS; 2: TCP_SEG_EN;
+            ||      4: IPV4_CHECKSUM_EN; 8: UDP_CHECKSUM_EN
+            | \---- QID (with next bit)
+             \----- 1: QID; 2: PSEUDO_HEADER_CALC_EN
+
+
+  SKB =           (null)
+}
+
+

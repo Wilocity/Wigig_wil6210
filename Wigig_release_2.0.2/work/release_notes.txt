@@ -1,0 +1,50 @@
+# Wigig Release 30/05/2013
+
+It is recommanded to upgrade the palform to stable kernel 3.9
+This script may do that but since it platform dependent it may fail to do so
+
+
+Components
+- FW based on FW TRUNK 3149
+- New Wilocity Linux Tools
+- Regulatory files for 60Ghtz
+- Hostapd  (from GIT) for 60AD and 11n AP
+- Enable Wil6210 TCP/UDP offload to improve performance and stability
+- Change interrup driver flow to support Linux NAPI API (Link stability)
+- wpa_supplicant 
+- dhcp server 
+- Samba server
+
+New features:
+- Hostapd support as the AP user space application (replace wpa_supplicant)
+- Bridge configure
+- Support bridge (br0) dynamic IP addressing assigmnet (DHCP) 
+- Support bridge (br0) static IP addressing assigmernt as fallback (when DHCP is not availble
+- Suport Samba service for remote access to AP FS
+- Suppor 11n AP (WiFi) default is 5 Ghtz on channel 36 (11n HT40)
+- TCP/UDP chechsum, Scatter gather and TSO offload suport
+
+Limitations:
+1- Traffic load balance is not optimized yet
+2- Network Manager not supported
+
+How to:
+1- Open shell with su permissions
+2- extract release file to /work this will create a /root/work folder
+3- the upgrade flow runs in three steps:
+	3.1 Kernel upgrade: /root/work/upgrade_wigig_1.0.7.sh kernel
+	    reboot when requested (after reboot verfy new kernel is updated- uname -r)
+	3.2 Driver upgrade: /root/work/upgrade_wigig_1.0.7.sh driver
+	3.3 FW upgrade: /root/work/upgrade_wigig_1.0.7.sh fw
+	3.4 FW upgrade: /root/work/upgrade_wigig_1.0.7.sh dhcpd
+
+4- To run in AP mode: call /root/work/run_ap.sh 
+	edit your .bashrc or init.d/... and add a call to /root/work/run_ap.sh &
+        connect LAN interface and update the LAN device name in /root/work/wil6210/ap.hostapdconfig
+        
+5- To run in STA mode: call /root/work/run_sta.sh
+
+
+
+
+

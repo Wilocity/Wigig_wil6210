@@ -1,0 +1,30 @@
+# debug module start-up
+WIL_MODOPT=dyndbg
+# station ap sniffer
+WIL_MODE=ap
+#WIL_NET_MODE=bridge
+WIL_NET_MODE=nat
+
+### for the STA
+
+### for the AP
+
+WIL_ETH_DEV_NAME=p2p1
+WIL_AP_IP="0.0.0.0"
+STATIC_NET="192.168.111"
+STATIC_IP="192.168.111.1"
+NETMASK="255.255.255.0"
+# hostapd executable
+HOSTAPD=/sbin/hostapd
+# hostapd config file, all AP config is there
+HOSTAP_CONF=/root/work/wil6210/wil6210_config/hostapd_11ad_no_aggr.conf
+WIL_FREQ=58320
+WIL_DHCP_INSTALL=/sbin/dhcpd
+WIL_USE_EXT_DHCP=0
+WIL_USE_INTERNAL_DHCP=1
+### for the sniffer
+# Y|1|y N|0|n
+WIL_SNIFFER_PHYINFO=Y
+# CP DP
+WIL_SNIFFER_PHY=DP
+# WIL_FREQ=1
